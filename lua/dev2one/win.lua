@@ -1,5 +1,6 @@
 local fzy = require('dev2one.vendor.fzy-lua')
 local storage = require('dev2one.storage')
+local uv = require('dev2one.uv')
 local api = vim.api
 local win = {}
 win.__index = win
@@ -71,27 +72,6 @@ function win:_with_preview(opts)
   preview_opts.width = preview_opts.width-1
   preview_opts.col = preview_opts.col+1
   self.preview.win = api.nvim_open_win(self.preview.buf, true, preview_opts)
-  api.nvim_win_set_option(self.preview.win, 'cursorline', true)
-  api.nvim_win_set_option(self.preview.win, 'winhighlight', 'NormalFloat:Normal')
-end
-
-function win:_with_preview_old(opts)
-  local split_char = '│'
-  local split_lines = {}
-  for _=1, opts.height do
-    table.insert(split_lines, split_char)
-  end
-  self.split.buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_lines(self.split.buf, 0, -1, false, split_lines)
-  local split_opts = vim.deepcopy(opts)
-  split_opts.width = 1
-  self.split.win = api.nvim_open_win(self.split.buf, false, split_opts)
-  api.nvim_win_set_option(self.split.win, 'winhighlight', 'NormalFloat:Normal')
-
-  local preview_opts = vim.deepcopy(opts)
-  preview_opts.width = preview_opts.width-1
-  preview_opts.col = preview_opts.col+1
-  self.preview.win = api.nvim_open_win(self.opt.main_buf, true, preview_opts)
   api.nvim_win_set_option(self.preview.win, 'cursorline', true)
   api.nvim_win_set_option(self.preview.win, 'winhighlight', 'NormalFloat:Normal')
 end
@@ -180,17 +160,17 @@ function win:open()
   api.nvim_set_current_buf(self.prompt.buf)
 end
 
-function win:_update(content)
+function win:_update(lines)
   api.nvim_buf_set_option(self.list.buf, 'modifiable', true)
 
   -- if list buffer had previous content then clean up first
-  if self.cur_content then
+  if self.list.cur_lines then
     api.nvim_buf_set_lines(self.list.buf, 0, -1, false, {})
   end
-  if next(content) ~= nil then
-    api.nvim_buf_set_lines(self.list.buf, 0, -1, false, content)
+  if next(lines) ~= nil then
+    api.nvim_buf_set_lines(self.list.buf, 0, -1, false, lines)
     api.nvim_buf_set_option(self.list.buf, 'modifiable', false)
-    self.cur_content = content
+    self.list.cur_lines = lines
     api.nvim_win_set_cursor(self.list.win, {1,0})
     vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
     vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=1})
@@ -222,13 +202,15 @@ function win:next()
 end
 
 function win:prev_pagedown()
-  vim.api.nvim_buf_call(self.opt.main_buf, function()
+  vim.api.nvim_buf_call(self.preview.buf, function()
     vim.cmd([[normal! 50j]])
   end)
 end
 
 function win:prev_pageup()
-  print(vim.inspect(self.content))
+  vim.api.nvim_buf_call(self.preview.buf, function()
+    vim.cmd([[normal! 50k]])
+  end)
 end
 
 function win:_update_preview()
@@ -236,9 +218,18 @@ function win:_update_preview()
     return
   end
   local content_details = self:_content_details()
-  local preview_pos = {content_details.line,0}
-  content_details.
-  api.nvim_win_set_cursor(self.preview.win, preview_pos)
+  if self.preview.cur_file ~= content_details.filepath then
+    self.preview.cur_file = content_details.filepath
+    uv.read_file(self.preview.cur_file, vim.schedule_wrap(function(chunk)
+      local ok = pcall(vim.api.nvim_buf_set_lines, self.preview.buf, 0, -1, false, vim.split(chunk, '[\r]?\n'))
+      if not ok then return end
+      local preview_pos = {content_details.line,0}
+      api.nvim_win_set_cursor(self.preview.win, preview_pos)
+    end))
+  else
+    local preview_pos = {content_details.line,0}
+    api.nvim_win_set_cursor(self.preview.win, preview_pos)
+  end
 end
 
 function win:select()
