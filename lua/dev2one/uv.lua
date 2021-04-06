@@ -2,7 +2,7 @@ local uv = vim.loop
 local M = {}
 
 
-function M.readFile(path, callback)
+function M.read_file(path, callback)
     uv.fs_open(path, 'r', tonumber('644', 8), function (err_open, fd)
       assert(not err_open, err_open)
       uv.fs_fstat(fd, function (err_stat, stat)
