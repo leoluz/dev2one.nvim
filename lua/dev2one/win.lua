@@ -6,14 +6,15 @@ win.__index = win
 local Win = {}
 
 function win.new(content, opt)
-  local w = {}
-  w.opt = opt or {}
-  w.prompt = {}
-  w.list = {}
-  w.border = {}
-  w.split = {}
-  w.preview = {}
-  w.content = content
+  local w = {
+    opt = opt or {},
+    prompt = {},
+    list = {},
+    border = {},
+    split = {},
+    preview = {},
+    content = content
+  }
   setmetatable(w, win)
   return w
 end
@@ -66,6 +67,28 @@ function win:_with_preview(opts)
   api.nvim_win_set_option(self.split.win, 'winhighlight', 'NormalFloat:Normal')
 
   local preview_opts = vim.deepcopy(opts)
+  self.preview.buf = api.nvim_create_buf(false, true)
+  preview_opts.width = preview_opts.width-1
+  preview_opts.col = preview_opts.col+1
+  self.preview.win = api.nvim_open_win(self.preview.buf, true, preview_opts)
+  api.nvim_win_set_option(self.preview.win, 'cursorline', true)
+  api.nvim_win_set_option(self.preview.win, 'winhighlight', 'NormalFloat:Normal')
+end
+
+function win:_with_preview_old(opts)
+  local split_char = '│'
+  local split_lines = {}
+  for _=1, opts.height do
+    table.insert(split_lines, split_char)
+  end
+  self.split.buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(self.split.buf, 0, -1, false, split_lines)
+  local split_opts = vim.deepcopy(opts)
+  split_opts.width = 1
+  self.split.win = api.nvim_open_win(self.split.buf, false, split_opts)
+  api.nvim_win_set_option(self.split.win, 'winhighlight', 'NormalFloat:Normal')
+
+  local preview_opts = vim.deepcopy(opts)
   preview_opts.width = preview_opts.width-1
   preview_opts.col = preview_opts.col+1
   self.preview.win = api.nvim_open_win(self.opt.main_buf, true, preview_opts)
@@ -85,6 +108,8 @@ function win:_with_prompt(opts)
   api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<CR>', "<cmd>lua require'dev2one'.window.select()<CR>", mapOpts)
   api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-k>', "<cmd>lua require'dev2one'.window.previous()<CR>", mapOpts)
   api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-j>', "<cmd>lua require'dev2one'.window.next()<CR>", mapOpts)
+  api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-f>', "<cmd>lua require'dev2one'.window.prev_pagedown()<CR>", mapOpts)
+  api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-b>', "<cmd>lua require'dev2one'.window.prev_pageup()<CR>", mapOpts)
   local function on_lines(_, _, _, first_line, last_line)
     self:_on_lines(first_line, last_line, prompt_char)
   end
@@ -112,9 +137,11 @@ end
 function win:_with_cleaner()
   api.nvim_set_current_buf(self.prompt.buf)
   local on_ins_leave = [[au InsertLeave <buffer> :lua require'dev2one'.window.delete()]]
+  local on_buf_leave = [[au BufLeave <buffer> :lua require'dev2one'.window.delete()]]
   api.nvim_command('augroup dev2oneCleanWin')
   api.nvim_command('  autocmd!')
   api.nvim_command(   on_ins_leave)
+  api.nvim_command(   on_buf_leave)
   api.nvim_command('augroup END')
 end
 
@@ -194,11 +221,23 @@ function win:next()
   self:_update_preview()
 end
 
+function win:prev_pagedown()
+  vim.api.nvim_buf_call(self.opt.main_buf, function()
+    vim.cmd([[normal! 50j]])
+  end)
+end
+
+function win:prev_pageup()
+  print(vim.inspect(self.content))
+end
+
 function win:_update_preview()
   if self.preview.win == nil or not api.nvim_win_is_valid(self.preview.win) then
     return
   end
-  local preview_pos = self:_target_pos()
+  local content_details = self:_content_details()
+  local preview_pos = {content_details.line,0}
+  content_details.
   api.nvim_win_set_cursor(self.preview.win, preview_pos)
 end
 
@@ -211,11 +250,10 @@ function win:select()
   self:delete()
 end
 
-function win:_target_pos()
+function win:_content_details()
   local pos = api.nvim_win_get_cursor(self.list.win)
   local key = api.nvim_buf_get_lines(self.list.buf, pos[1]-1, pos[1], false)
-  local details = self.content:get(key[1])
-  return {details.line,0}
+  return self.content:get(key[1])
 end
 
 function win:delete()
@@ -260,6 +298,16 @@ function Win.delete()
   local instance = _get_instance()
   storage.delete(Win.id)
   instance:delete()
+end
+
+function Win.prev_pagedown()
+  local instance = _get_instance()
+  instance:prev_pagedown()
+end
+
+function Win.prev_pageup()
+  local instance = _get_instance()
+  instance:prev_pageup()
 end
 
 return Win

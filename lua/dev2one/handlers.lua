@@ -4,7 +4,7 @@ local content = require('dev2one.content')
 local function document_symbol(err, _, result, _, bufnr)
   assert(not err, err)
   local winnr = vim.api.nvim_get_current_win()
-  local c = content.from_document_symbol(result)
+  local c = content.from_document_symbol(result, bufnr)
 
   local opt = {
     main_win = winnr,
