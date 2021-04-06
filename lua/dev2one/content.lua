@@ -8,13 +8,15 @@ local function new()
   return o
 end
 
-function content.from_document_symbol(ds)
+function content.from_document_symbol(result, bufnr)
   local instance = new()
-  for _, doc in ipairs(ds) do
+  local filepath = vim.fn.expand('#'..bufnr..':p')
+  for _, doc in ipairs(result) do
     local kind = vim.lsp.protocol.SymbolKind[doc.kind]
     local line = doc.selectionRange.start.line + 1
     local key = kind.." "..doc.name
     local value = {
+      filepath = filepath,
       detail = doc.detail,
       kind = kind,
       name = doc.name,
