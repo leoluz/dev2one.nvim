@@ -1,6 +1,7 @@
 local fzy = require('dev2one.vendor.fzy-lua')
 local storage = require('dev2one.storage')
 local uv = require('dev2one.uv')
+local fn = require('dev2one.fnutil')
 local api = vim.api
 local win = {}
 win.__index = win
@@ -45,12 +46,12 @@ end
 function win:_with_list(content, opts)
   self.list.content = content
   self.list.buf = api.nvim_create_buf(false, true)
-  local selection_char = '▶'
   api.nvim_buf_set_option(self.list.buf, 'bufhidden', 'wipe')
   self.list.win = api.nvim_open_win(self.list.buf, true, opts)
   api.nvim_win_set_option(self.list.win, 'cursorline', true)
   api.nvim_win_set_option(self.list.win, 'signcolumn', 'yes')
   api.nvim_win_set_option(self.list.win, 'winhighlight', 'NormalFloat:Normal')
+  local selection_char = '▶'
   vim.fn.sign_define('dev2one-curline', {text=selection_char})
 end
 
@@ -71,8 +72,8 @@ function win:_with_preview(opts)
   self.preview.buf = api.nvim_create_buf(false, true)
   preview_opts.width = preview_opts.width-1
   preview_opts.col = preview_opts.col+1
+  self.preview.opts = preview_opts
   self.preview.win = api.nvim_open_win(self.preview.buf, true, preview_opts)
-  api.nvim_win_set_option(self.preview.win, 'cursorline', true)
   api.nvim_win_set_option(self.preview.win, 'winhighlight', 'NormalFloat:Normal')
 end
 
@@ -84,12 +85,17 @@ function win:_with_prompt(opts)
   api.nvim_buf_set_option(self.prompt.buf, 'bufhidden', 'wipe')
   self.prompt.win = api.nvim_open_win(self.prompt.buf, true, opts)
   api.nvim_win_set_option(self.prompt.win, 'winhighlight', 'NormalFloat:Normal')
-  local mapOpts = { noremap = true, silent = true }
-  api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<CR>', "<cmd>lua require'dev2one'.window.select()<CR>", mapOpts)
-  api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-k>', "<cmd>lua require'dev2one'.window.previous()<CR>", mapOpts)
-  api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-j>', "<cmd>lua require'dev2one'.window.next()<CR>", mapOpts)
-  api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-f>', "<cmd>lua require'dev2one'.window.prev_pagedown()<CR>", mapOpts)
-  api.nvim_buf_set_keymap(self.prompt.buf, 'i', '<C-b>', "<cmd>lua require'dev2one'.window.prev_pageup()<CR>", mapOpts)
+
+  fn.imap(self.prompt.buf, '<CR>', "<cmd>lua require'dev2one'.window.select()<CR>")
+  fn.imap(self.prompt.buf, '<C-k>', "<cmd>lua require'dev2one'.window.previous()<CR>")
+  fn.imap(self.prompt.buf, '<C-j>', "<cmd>lua require'dev2one'.window.next()<CR>")
+  fn.imap(self.prompt.buf, '<C-f>', "<cmd>lua require'dev2one'.window.prev_pagedown()<CR>")
+  fn.imap(self.prompt.buf, '<C-b>', "<cmd>lua require'dev2one'.window.prev_pageup()<CR>")
+  fn.imap(self.prompt.buf, '<C-y>', "<cmd>lua require'dev2one'.window.prev_lineup()<CR>")
+  fn.imap(self.prompt.buf, '<C-e>', "<cmd>lua require'dev2one'.window.prev_linedown()<CR>")
+  fn.imap(self.prompt.buf, '<C-l>', "<cmd>lua require'dev2one'.window.prev_scrollright()<CR>")
+  fn.imap(self.prompt.buf, '<C-h>', "<cmd>lua require'dev2one'.window.prev_scrollleft()<CR>")
+
   local function on_lines(_, _, _, first_line, last_line)
     self:_on_lines(first_line, last_line, prompt_char)
   end
@@ -202,14 +208,40 @@ function win:next()
 end
 
 function win:prev_pagedown()
+  local height = self.preview.opts.height
   vim.api.nvim_buf_call(self.preview.buf, function()
-    vim.cmd([[normal! 50j]])
+    vim.cmd("normal! L"..height.."jz-")
   end)
 end
 
 function win:prev_pageup()
+  local height = self.preview.opts.height
   vim.api.nvim_buf_call(self.preview.buf, function()
-    vim.cmd([[normal! 50k]])
+    vim.cmd("normal! H"..height.."kzt")
+  end)
+end
+
+function win:prev_lineup()
+  vim.api.nvim_buf_call(self.preview.buf, function()
+    vim.cmd("normal! Hk")
+  end)
+end
+
+function win:prev_linedown()
+  vim.api.nvim_buf_call(self.preview.buf, function()
+    vim.cmd("normal! Lj")
+  end)
+end
+
+function win:prev_scrollright()
+  vim.api.nvim_buf_call(self.preview.buf, function()
+    vim.cmd("normal! zl")
+  end)
+end
+
+function win:prev_scrollleft()
+  vim.api.nvim_buf_call(self.preview.buf, function()
+    vim.cmd("normal! zh")
   end)
 end
 
@@ -218,27 +250,33 @@ function win:_update_preview()
     return
   end
   local content_details = self:_content_details()
+  local function update_cursor()
+    local line = content_details.line
+    api.nvim_win_set_cursor(self.preview.win, {line,0})
+    vim.fn.sign_unplace('', {buffer=self.preview.buf, id='dev2one-curline'})
+    vim.fn.sign_place(0, '', 'dev2one-curline', self.preview.buf, {lnum=line})
+  end
   if self.preview.cur_file ~= content_details.filepath then
     self.preview.cur_file = content_details.filepath
     uv.read_file(self.preview.cur_file, vim.schedule_wrap(function(chunk)
       local ok = pcall(vim.api.nvim_buf_set_lines, self.preview.buf, 0, -1, false, vim.split(chunk, '[\r]?\n'))
       if not ok then return end
-      local preview_pos = {content_details.line,0}
-      api.nvim_win_set_cursor(self.preview.win, preview_pos)
+      local filetype = vim.fn.fnamemodify(content_details.filepath, ":e")
+      vim.api.nvim_buf_set_option(self.preview.buf, "ft", filetype)
+      update_cursor()
     end))
   else
-    local preview_pos = {content_details.line,0}
-    api.nvim_win_set_cursor(self.preview.win, preview_pos)
+    update_cursor()
   end
 end
 
 function win:select()
-  local pos = self:_target_pos()
+  local content_details = self:_content_details()
+  local pos = {content_details.line,0}
   api.nvim_win_set_cursor(self.opt.main_win, pos)
   api.nvim_set_current_win(self.opt.main_win)
   api.nvim_command('normal z.')
   api.nvim_command('stopinsert')
-  self:delete()
 end
 
 function win:_content_details()
@@ -281,7 +319,6 @@ end
 
 function Win.select()
   local instance = _get_instance()
-  storage.delete(Win.id)
   instance:select()
 end
 
@@ -299,6 +336,26 @@ end
 function Win.prev_pageup()
   local instance = _get_instance()
   instance:prev_pageup()
+end
+
+function Win.prev_lineup()
+  local instance = _get_instance()
+  instance:prev_lineup()
+end
+
+function Win.prev_linedown()
+  local instance = _get_instance()
+  instance:prev_linedown()
+end
+
+function Win.prev_scrollright()
+  local instance = _get_instance()
+  instance:prev_scrollright()
+end
+
+function Win.prev_scrollleft()
+  local instance = _get_instance()
+  instance:prev_scrollleft()
 end
 
 return Win
