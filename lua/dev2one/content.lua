@@ -1,5 +1,3 @@
-local uri = require('dev2one.vendor.lua-uri.uri')
-
 local content = {}
 
 local function new()
@@ -8,6 +6,29 @@ local function new()
   setmetatable(o, content)
   content.__index = content
   return o
+end
+
+local function from_file_reference(result)
+  local instance = new()
+  for _, doc in ipairs(result) do
+    local filepath = vim.uri_to_fname(doc.uri)
+    local basepath = vim.fn.fnamemodify(filepath, ":h:h:h:h")
+    local relative_path = string.sub(doc.uri, #basepath)
+
+    local line = doc.range.start.line + 1
+    local key = relative_path..":"..line
+
+    local value = {
+      filepath = filepath,
+      location = doc,
+      line = line
+    }
+    instance.items[key] = value
+  end
+  table.sort(instance.items, function(a, b)
+    return a.filepath < b.filepath and a.line < b.line
+  end)
+  return instance
 end
 
 function content.from_document_symbol(result, bufnr)
@@ -31,26 +52,11 @@ function content.from_document_symbol(result, bufnr)
 end
 
 function content.from_document_references(result)
-  local instance = new()
-  for _, doc in ipairs(result) do
-    local file_uri = uri:new(doc.uri)
-    local filepath = file_uri:filesystem_path("unix")
-    local basepath = vim.fn.fnamemodify(filepath, ":h:h:h:h")
-    local relative_path = string.sub(doc.uri, #basepath)
+  return from_file_reference(result)
+end
 
-    local line = doc.range.start.line
-    local key = relative_path..":"..line
-
-    local value = {
-      filepath = filepath,
-      line = line
-    }
-    instance.items[key] = value
-  end
-  table.sort(instance.items, function(a, b)
-    return a.filepath < b.filepath and a.line < b.line
-  end)
-  return instance
+function content.from_document_implementation(result)
+  return from_file_reference(result)
 end
 
 function content:list()
