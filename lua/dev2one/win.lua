@@ -153,7 +153,7 @@ function win:open()
   assert(win_height>0, "not enough area to draw window")
   assert(win_width>20, "not enough area to draw window")
 
-  local list_opts = win_opts(win_width, win_height-1, row, col)
+  local list_opts = win_opts(math.floor(win_width/2), win_height-1, row, col)
   local prompt_opts = win_opts(math.floor(win_width/2), 1, row + win_height - 1, col)
   local border_opts = win_opts(win_width+2, win_height+2, row-1, col-1)
   local preview_opts = win_opts(math.floor(win_width/2), win_height, row, col+math.ceil(win_width/2))
@@ -180,6 +180,9 @@ function win:_update(lines)
     api.nvim_win_set_cursor(self.list.win, {1,0})
     vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
     vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=1})
+    vim.api.nvim_buf_call(self.list.buf, function()
+      vim.cmd("normal! $")
+    end)
     self:_update_preview()
   end
 end
@@ -192,6 +195,7 @@ function win:previous()
   vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
   vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=pos[1]-1})
   api.nvim_win_set_cursor(self.list.win, {pos[1]-1,0})
+  vim.api.nvim_buf_call(self.list.buf, function() vim.cmd("normal! $") end)
   self:_update_preview()
 end
 
@@ -204,6 +208,7 @@ function win:next()
   vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
   vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=pos[1]+1})
   api.nvim_win_set_cursor(self.list.win, {pos[1]+1,0})
+  vim.api.nvim_buf_call(self.list.buf, function() vim.cmd("normal! $") end)
   self:_update_preview()
 end
 
@@ -272,9 +277,13 @@ end
 
 function win:select()
   local content_details = self:_content_details()
-  local pos = {content_details.line,0}
-  api.nvim_win_set_cursor(self.opt.main_win, pos)
   api.nvim_set_current_win(self.opt.main_win)
+  if content_details.location then
+    vim.lsp.util.jump_to_location(content_details.location)
+  else
+    local pos = {content_details.line,0}
+    api.nvim_win_set_cursor(self.opt.main_win, pos)
+  end
   api.nvim_command('normal z.')
   api.nvim_command('stopinsert')
 end
