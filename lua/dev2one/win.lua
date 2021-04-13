@@ -1,15 +1,14 @@
 local fzy = require('dev2one.vendor.fzy-lua')
+local uvutil = require('dev2one.uvutil')
+local fnutil = require('dev2one.fnutil')
 local storage = require('dev2one.storage')
-local uv = require('dev2one.uv')
-local fn = require('dev2one.fnutil')
 local api = vim.api
 local win = {}
 win.__index = win
-local Win = {}
 
-function win.new(content, opt)
+function win.new(content, opts)
   local w = {
-    opt = opt or {},
+    opts = opts or {},
     prompt = {},
     list = {},
     border = {},
@@ -18,22 +17,32 @@ function win.new(content, opt)
     content = content
   }
   setmetatable(w, win)
+  w.id = storage.save(w)
   return w
 end
 
 function win:_with_border(opts)
   self.border.buf = api.nvim_create_buf(false, true)
-  self.border.left_line_size = math.ceil((opts.width-2)/2)
-  self.border.right_line_size = opts.width - 2 - self.border.left_line_size - 1
-  local left_line = string.rep('─', self.border.left_line_size)
-  local right_line = string.rep('─', self.border.right_line_size)
-  local top_line = '╭'..left_line..'┬'..right_line..'╮'
+  local horizontal_top_line = ''
+  local horizontal_bottom_line = ''
+  if self.opts.with_preview then
+    self.border.left_line_size = math.ceil((opts.width-2)/2)
+    self.border.right_line_size = opts.width - 2 - self.border.left_line_size - 1
+    local left_line = string.rep('─', self.border.left_line_size)
+    local right_line = string.rep('─', self.border.right_line_size)
+    horizontal_top_line = left_line..'┬'..right_line
+    horizontal_bottom_line = left_line..'┴'..right_line
+  else
+    horizontal_top_line = string.rep('─', opts.width-2)
+    horizontal_bottom_line = string.rep('─', opts.width-2)
+  end
+  local top_line = '╭'..horizontal_top_line..'╮'
   local border_lines = { top_line }
   local middle_line = '│' .. string.rep(' ', opts.width-2) .. '│'
   for _=1, opts.height-2 do
     table.insert(border_lines, middle_line)
   end
-  local bottom_line = '╰'..left_line..'┴'..right_line..'╯'
+  local bottom_line = '╰'..horizontal_bottom_line..'╯'
   table.insert(border_lines, bottom_line)
   api.nvim_buf_set_lines(self.border.buf, 0, -1, false, border_lines)
   api.nvim_buf_set_option(self.border.buf, 'modifiable', false)
@@ -53,6 +62,7 @@ function win:_with_list(content, opts)
   api.nvim_win_set_option(self.list.win, 'winhighlight', 'NormalFloat:Normal')
   local selection_char = '▶'
   vim.fn.sign_define('dev2one-curline', {text=selection_char})
+  vim.schedule(function() self:update(content) end)
 end
 
 function win:_with_preview(opts)
@@ -86,15 +96,15 @@ function win:_with_prompt(opts)
   self.prompt.win = api.nvim_open_win(self.prompt.buf, true, opts)
   api.nvim_win_set_option(self.prompt.win, 'winhighlight', 'NormalFloat:Normal')
 
-  fn.imap(self.prompt.buf, '<CR>', "<cmd>lua require'dev2one'.window.select()<CR>")
-  fn.imap(self.prompt.buf, '<C-k>', "<cmd>lua require'dev2one'.window.previous()<CR>")
-  fn.imap(self.prompt.buf, '<C-j>', "<cmd>lua require'dev2one'.window.next()<CR>")
-  fn.imap(self.prompt.buf, '<C-f>', "<cmd>lua require'dev2one'.window.prev_pagedown()<CR>")
-  fn.imap(self.prompt.buf, '<C-b>', "<cmd>lua require'dev2one'.window.prev_pageup()<CR>")
-  fn.imap(self.prompt.buf, '<C-y>', "<cmd>lua require'dev2one'.window.prev_lineup()<CR>")
-  fn.imap(self.prompt.buf, '<C-e>', "<cmd>lua require'dev2one'.window.prev_linedown()<CR>")
-  fn.imap(self.prompt.buf, '<C-l>', "<cmd>lua require'dev2one'.window.prev_scrollright()<CR>")
-  fn.imap(self.prompt.buf, '<C-h>', "<cmd>lua require'dev2one'.window.prev_scrollleft()<CR>")
+  fnutil.imap(self.prompt.buf, '<CR>', "<cmd>lua require'dev2one'.window.select()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-k>', "<cmd>lua require'dev2one'.window.previous()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-j>', "<cmd>lua require'dev2one'.window.next()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-f>', "<cmd>lua require'dev2one'.window.prev_pagedown()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-b>', "<cmd>lua require'dev2one'.window.prev_pageup()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-y>', "<cmd>lua require'dev2one'.window.prev_lineup()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-e>', "<cmd>lua require'dev2one'.window.prev_linedown()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-l>', "<cmd>lua require'dev2one'.window.prev_scrollright()<CR>")
+  fnutil.imap(self.prompt.buf, '<C-h>', "<cmd>lua require'dev2one'.window.prev_scrollleft()<CR>")
 
   local function on_lines(_, _, _, first_line, last_line)
     self:_on_lines(first_line, last_line, prompt_char)
@@ -107,7 +117,6 @@ function win:_on_lines(first_line, last_line, prompt_char)
   local prompt = api.nvim_buf_get_lines(self.prompt.buf, first_line, last_line, false)
   prompt = string.sub(prompt[1], #prompt_char+1)
   if prompt == '' then
-    vim.schedule(function() self:_update(self.list.content) end)
     return
   end
   local results = fzy.filter(prompt, self.list.content)
@@ -117,7 +126,7 @@ function win:_on_lines(first_line, last_line, prompt_char)
     local line = self.list.content[result[1]]
     table.insert(lines, line)
   end
-  vim.schedule(function() self:_update(lines) end)
+  vim.schedule(function() self:update(lines) end)
 end
 
 function win:_with_cleaner()
@@ -153,38 +162,26 @@ function win:open()
   assert(win_height>0, "not enough area to draw window")
   assert(win_width>20, "not enough area to draw window")
 
-  local list_opts = win_opts(math.floor(win_width/2), win_height-1, row, col)
-  local prompt_opts = win_opts(math.floor(win_width/2), 1, row + win_height - 1, col)
-  local border_opts = win_opts(win_width+2, win_height+2, row-1, col-1)
-  local preview_opts = win_opts(math.floor(win_width/2), win_height, row, col+math.ceil(win_width/2))
+  local panel_width = win_width
+  if self.opts.with_preview then
+    panel_width = math.floor(win_width/2)
+    local preview_opts = win_opts(panel_width, win_height, row, col+math.ceil(win_width/2))
+    self:_with_preview(preview_opts)
+  end
 
-  self:_with_preview(preview_opts)
+  local list_opts = win_opts(panel_width, win_height-1, row, col)
   self:_with_list(self.content:list(), list_opts)
-  self:_with_prompt(prompt_opts)
+
+  if self.opts.with_prompt then
+    local prompt_opts = win_opts(panel_width, 1, row + win_height - 1, col)
+    self:_with_prompt(prompt_opts)
+  end
+
+  local border_opts = win_opts(win_width+2, win_height+2, row-1, col-1)
   self:_with_border(border_opts)
+
   self:_with_cleaner()
   api.nvim_set_current_buf(self.prompt.buf)
-end
-
-function win:_update(lines)
-  api.nvim_buf_set_option(self.list.buf, 'modifiable', true)
-
-  -- if list buffer had previous content then clean up first
-  if self.list.cur_lines then
-    api.nvim_buf_set_lines(self.list.buf, 0, -1, false, {})
-  end
-  if next(lines) ~= nil then
-    api.nvim_buf_set_lines(self.list.buf, 0, -1, false, lines)
-    api.nvim_buf_set_option(self.list.buf, 'modifiable', false)
-    self.list.cur_lines = lines
-    api.nvim_win_set_cursor(self.list.win, {1,0})
-    vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
-    vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=1})
-    vim.api.nvim_buf_call(self.list.buf, function()
-      vim.cmd("normal! $")
-    end)
-    self:_update_preview()
-  end
 end
 
 function win:previous()
@@ -250,6 +247,27 @@ function win:prev_scrollleft()
   end)
 end
 
+function win:update(lines)
+  vim.schedule(
+    function()
+      -- if list buffer had previous content then clean up first
+      if self.list.cur_lines then
+            api.nvim_buf_set_lines(self.list.buf, 0, -1, false, {})
+      end
+      if next(lines) ~= nil then
+          api.nvim_buf_set_lines(self.list.buf, 0, -1, false, lines)
+          self.list.cur_lines = lines
+          api.nvim_win_set_cursor(self.list.win, {1,0})
+          vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
+          vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=1})
+          vim.api.nvim_buf_call(self.list.buf, function()
+            vim.cmd("normal! $")
+          end)
+          self:_update_preview()
+      end
+    end)
+end
+
 function win:_update_preview()
   if self.preview.win == nil or not api.nvim_win_is_valid(self.preview.win) then
     return
@@ -263,7 +281,7 @@ function win:_update_preview()
   end
   if self.preview.cur_file ~= content_details.filepath then
     self.preview.cur_file = content_details.filepath
-    uv.read_file(self.preview.cur_file, vim.schedule_wrap(function(chunk)
+    uvutil.read_file(self.preview.cur_file, vim.schedule_wrap(function(chunk)
       local ok = pcall(vim.api.nvim_buf_set_lines, self.preview.buf, 0, -1, false, vim.split(chunk, '[\r]?\n'))
       if not ok then return end
       local filetype = vim.fn.fnamemodify(content_details.filepath, ":e")
@@ -277,12 +295,12 @@ end
 
 function win:select()
   local content_details = self:_content_details()
-  api.nvim_set_current_win(self.opt.main_win)
+  api.nvim_set_current_win(self.opts.main_win)
   if content_details.location then
     vim.lsp.util.jump_to_location(content_details.location)
   else
     local pos = {content_details.line,0}
-    api.nvim_win_set_cursor(self.opt.main_win, pos)
+    api.nvim_win_set_cursor(self.opts.main_win, pos)
   end
   api.nvim_command('normal z.')
   api.nvim_command('stopinsert')
@@ -295,76 +313,15 @@ function win:_content_details()
 end
 
 function win:delete()
-  local bufs = string.format("%s %s %s %s", self.list.buf, self.prompt.buf, self.border.buf, self.split.buf)
+  local bufs = string.format("%s %s", self.list.buf, self.border.buf)
+  if self.opts.with_prompt then
+    bufs = bufs.." "..self.prompt.buf
+  end
+  if self.opts.with_preview then
+    bufs = bufs.." "..self.split.buf.." "..self.preview.buf
+  end
   api.nvim_command('silent bwipeout! '..bufs)
-  vim.api.nvim_win_close(self.preview.win, false)
+  storage.delete(self.id)
 end
 
-local function _get_instance()
-  assert(Win.id~=nil, "win error: M.id is nil")
-  return storage.get(Win.id)
-end
-
-function Win.new(...)
-  local w = win.new(...)
-  Win.id = storage.save(w)
-  return Win
-end
-
-function Win.open()
-  local instance = _get_instance()
-  instance:open()
-end
-
-function Win.previous()
-  local instance = _get_instance()
-  instance:previous()
-end
-
-function Win.next()
-  local instance = _get_instance()
-  instance:next()
-end
-
-function Win.select()
-  local instance = _get_instance()
-  instance:select()
-end
-
-function Win.delete()
-  local instance = _get_instance()
-  storage.delete(Win.id)
-  instance:delete()
-end
-
-function Win.prev_pagedown()
-  local instance = _get_instance()
-  instance:prev_pagedown()
-end
-
-function Win.prev_pageup()
-  local instance = _get_instance()
-  instance:prev_pageup()
-end
-
-function Win.prev_lineup()
-  local instance = _get_instance()
-  instance:prev_lineup()
-end
-
-function Win.prev_linedown()
-  local instance = _get_instance()
-  instance:prev_linedown()
-end
-
-function Win.prev_scrollright()
-  local instance = _get_instance()
-  instance:prev_scrollright()
-end
-
-function Win.prev_scrollleft()
-  local instance = _get_instance()
-  instance:prev_scrollleft()
-end
-
-return Win
+return win
