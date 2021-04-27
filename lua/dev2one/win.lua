@@ -56,10 +56,12 @@ function win:_with_list(content, opts)
   self.list.content = content
   self.list.buf = api.nvim_create_buf(false, true)
   api.nvim_buf_set_option(self.list.buf, 'bufhidden', 'wipe')
+  api.nvim_buf_set_option(self.list.buf, 'modifiable', false)
   self.list.win = api.nvim_open_win(self.list.buf, true, opts)
   api.nvim_win_set_option(self.list.win, 'cursorline', true)
   api.nvim_win_set_option(self.list.win, 'signcolumn', 'yes')
   api.nvim_win_set_option(self.list.win, 'winhighlight', 'NormalFloat:Normal')
+  fnutil.nmap(self.list.buf, '<CR>', "<cmd>lua require'dev2one'.window.select_line()<CR>")
   local selection_char = '▶'
   vim.fn.sign_define('dev2one-curline', {text=selection_char})
   vim.schedule(function() self:update(content) end)
@@ -96,7 +98,7 @@ function win:_with_prompt(opts)
   self.prompt.win = api.nvim_open_win(self.prompt.buf, true, opts)
   api.nvim_win_set_option(self.prompt.win, 'winhighlight', 'NormalFloat:Normal')
 
-  fnutil.imap(self.prompt.buf, '<CR>', "<cmd>lua require'dev2one'.window.select()<CR>")
+  fnutil.imap(self.prompt.buf, '<CR>', "<cmd>lua require'dev2one'.window.select_text()<CR>")
   fnutil.imap(self.prompt.buf, '<C-k>', "<cmd>lua require'dev2one'.window.previous()<CR>")
   fnutil.imap(self.prompt.buf, '<C-j>', "<cmd>lua require'dev2one'.window.next()<CR>")
   fnutil.imap(self.prompt.buf, '<C-f>', "<cmd>lua require'dev2one'.window.prev_pagedown()<CR>")
@@ -250,6 +252,7 @@ end
 function win:update(lines)
   vim.schedule(
     function()
+      api.nvim_buf_set_option(self.list.buf, 'modifiable', true)
       -- if list buffer had previous content then clean up first
       if self.list.cur_lines then
             api.nvim_buf_set_lines(self.list.buf, 0, -1, false, {})
@@ -260,11 +263,14 @@ function win:update(lines)
           api.nvim_win_set_cursor(self.list.win, {1,0})
           vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
           vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=1})
-          vim.api.nvim_buf_call(self.list.buf, function()
-            vim.cmd("normal! $")
-          end)
+          if self.opts.list_show_eol then
+            vim.api.nvim_buf_call(self.list.buf, function()
+              vim.cmd("normal! $")
+            end)
+          end
           self:_update_preview()
       end
+      api.nvim_buf_set_option(self.list.buf, 'modifiable', false)
     end)
 end
 
@@ -272,19 +278,19 @@ function win:_update_preview()
   if self.preview.win == nil or not api.nvim_win_is_valid(self.preview.win) then
     return
   end
-  local content_details = self:_content_details()
+  local item = self:_get_item_by_text()
   local function update_cursor()
-    local line = content_details.line
+    local line = item.line
     api.nvim_win_set_cursor(self.preview.win, {line,0})
     vim.fn.sign_unplace('', {buffer=self.preview.buf, id='dev2one-curline'})
     vim.fn.sign_place(0, '', 'dev2one-curline', self.preview.buf, {lnum=line})
   end
-  if self.preview.cur_file ~= content_details.filepath then
-    self.preview.cur_file = content_details.filepath
+  if self.preview.cur_file ~= item.filepath then
+    self.preview.cur_file = item.filepath
     uvutil.read_file(self.preview.cur_file, vim.schedule_wrap(function(chunk)
       local ok = pcall(vim.api.nvim_buf_set_lines, self.preview.buf, 0, -1, false, vim.split(chunk, '[\r]?\n'))
       if not ok then return end
-      local filetype = vim.fn.fnamemodify(content_details.filepath, ":e")
+      local filetype = vim.fn.fnamemodify(item.filepath, ":e")
       vim.api.nvim_buf_set_option(self.preview.buf, "ft", filetype)
       update_cursor()
     end))
@@ -293,23 +299,41 @@ function win:_update_preview()
   end
 end
 
-function win:select()
-  local content_details = self:_content_details()
+function win:select_text()
+  local item = self:_get_item_by_text()
+  self:_select(item)
+end
+
+function win:select_line()
+  local item = self:_get_item_by_line()
+  if item and item.line then
+    self:_select(item)
+  end
+end
+
+function win:_select(item)
   api.nvim_set_current_win(self.opts.main_win)
-  if content_details.location then
-    vim.lsp.util.jump_to_location(content_details.location)
+  if item.location then
+    vim.lsp.util.jump_to_location(item.location)
   else
-    local pos = {content_details.line,0}
+    local pos = {item.line,0}
     api.nvim_win_set_cursor(self.opts.main_win, pos)
   end
   api.nvim_command('normal z.')
   api.nvim_command('stopinsert')
 end
 
-function win:_content_details()
+function win:_get_item_by_line()
   local pos = api.nvim_win_get_cursor(self.list.win)
-  local key = api.nvim_buf_get_lines(self.list.buf, pos[1]-1, pos[1], false)
-  return self.content:get(key[1])
+  local line = pos[1]
+  return self.content:get(line)
+end
+
+function win:_get_item_by_text()
+  local pos = api.nvim_win_get_cursor(self.list.win)
+  local line = pos[1]
+  local text = api.nvim_buf_get_lines(self.list.buf, line-1, line, false)
+  return self.content:get(text[1])
 end
 
 function win:delete()

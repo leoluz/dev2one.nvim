@@ -5,6 +5,11 @@ function M.process(cmd, args, cwd, on_done, on_stdout, on_stderr)
   assert(cmd~=nil)
   local stdout = uv.new_pipe(false)
   local stderr = uv.new_pipe(false)
+  --local cmd_string = cmd
+  --for _, arg in ipairs(args) do
+    --cmd_string = cmd_string .. " " .. arg
+  --end
+  --print("running command:", cmd_string)
   Handle = uv.spawn(cmd, {
       args = args,
       cwd = cwd,
