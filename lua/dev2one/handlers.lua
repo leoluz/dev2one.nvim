@@ -10,7 +10,8 @@ local function handle(err, result, bufnr, content_fn)
     main_win = winnr,
     main_buf = bufnr,
     with_preview = true,
-    with_prompt = true
+    with_prompt = true,
+    list_show_eol = true
   }
   local w = cmd.window.new(c, opts)
   w.open()

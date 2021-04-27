@@ -34,9 +34,14 @@ function Win.next()
   instance:next()
 end
 
-function Win.select()
+function Win.select_text()
   local instance = _get_instance()
-  instance:select()
+  instance:select_text()
+end
+
+function Win.select_line()
+  local instance = _get_instance()
+  instance:select_line()
 end
 
 function Win.delete()
