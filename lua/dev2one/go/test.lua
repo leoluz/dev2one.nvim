@@ -63,23 +63,24 @@ function content:update(results)
     if pkg.status == 'fail' then
       local test_found = false
       for test_name, test in pairs(pkg.tests) do
-        if test.status == 'fail' and test.error then
+        if test.status == 'fail' and test.output and next(test.output) ~= nil then
           test_found = true
           text = string.format("\t%s", test_name)
           entry = vim.deepcopy(entry)
           entry.text = text
           entry.test = test_name
           entry.status = test.status
-          entry.file = test.file
           entry.line = tonumber(test.line)
-          entry.error = test.error
-
           table.insert(self.items, entry)
-          if test.error then
-            --local err = string.format("file: %s line: %s error: %s", test.file, test.line, test.error)
-            local err = string.format("%s: %s", test.line, test.error)
+
+          for _, output in ipairs(test.output) do
             entry = vim.deepcopy(entry)
-            entry.text = string.format("\t\t%s", err)
+            entry.text = string.format("\t%s", output)
+            local file, line = string.match(output, "%s*(%g+%.go):(%d+)%s.+")
+            if file and line then
+              entry.file = file
+              entry.line = tonumber(line)
+            end
             table.insert(self.items, entry)
           end
         end
@@ -87,7 +88,7 @@ function content:update(results)
       -- this means that the package has errors but no test actually failed
       if not test_found then
         for _, out in ipairs(pkg.output) do
-          text = string.format("\t\t%s", out)
+          text = string.format("\t%s", out)
           table.insert(self.items, { text=text })
         end
       end
@@ -188,16 +189,14 @@ function gotest:get_package_name(pkg)
   return root_dir, package_name
 end
 
-function gotest:extract_error_details(out)
-  if not string.find(out, "===") and not string.find(out, "---") then
-    local file, line, err = string.match(out, "%s*(.+):(%d+):%s([%g%s]+)")
-    if file and line and err then
-      return file, line, err:gsub("[\n\r]", "")
-    end
+function gotest:clean_output(out)
+  if not string.find(out, "%s*===.+") and not string.find(out, "%s*%-%-%-.+") then
+    local file, line = string.match(out, "%s*(.+):(%d+):%s.+")
+    return file, line, out
   end
 end
 
-function gotest:handle_gotest(test_event)
+function gotest:handle_output(test_event)
   assert(test_event)
   if not test_event.Package then
     return
@@ -234,13 +233,21 @@ function gotest:handle_gotest(test_event)
         self.results[pkg].tests[test].elapsed = test_event.Elapsed
       end
     else
-      local out = test_event.Output
-      table.insert(self.results[pkg].tests[test].output, out)
-      local file, line, err = self:extract_error_details(out)
-      if file and line and err then
+      local file, line_nr, output = self:clean_output(test_event.Output)
+      if file then
         self.results[pkg].tests[test].file = file
-        self.results[pkg].tests[test].line = line
-        self.results[pkg].tests[test].error = err
+      end
+      if line_nr then
+        self.results[pkg].tests[test].line = line_nr
+      end
+
+      if output then
+        local lines = vim.split(output, "\n")
+        for _, line in ipairs(lines) do
+          if line ~= "" then
+            table.insert(self.results[pkg].tests[test].output, line)
+          end
+        end
       end
     end
   else
@@ -266,7 +273,7 @@ function gotest:on_stdout(data, window)
         vim.schedule(
           function ()
             local test_event = vim.fn.json_decode(d)
-            self:handle_gotest(test_event)
+            self:handle_output(test_event)
           end)
       end
     end
@@ -300,9 +307,13 @@ function gotest:test(pkg_param)
   }
   if not pkg_param then
     local test_case = self:get_test_case()
-    table.insert(args, "-run")
-    table.insert(args, test_case)
-    self.content.title = "Running: " .. test_case
+    if test_case then
+      table.insert(args, "-run")
+      table.insert(args, test_case)
+      self.content.title = "Running Test: " .. test_case
+    else
+      self.content.title = "Running Tests for Package: " .. package_name
+    end
   end
   table.insert(args, "-json")
   w.open()

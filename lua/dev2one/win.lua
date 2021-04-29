@@ -62,6 +62,7 @@ function win:_with_list(content, opts)
   api.nvim_win_set_option(self.list.win, 'signcolumn', 'yes')
   api.nvim_win_set_option(self.list.win, 'winhighlight', 'NormalFloat:Normal')
   fnutil.nmap(self.list.buf, '<CR>', "<cmd>lua require'dev2one'.window.select_line()<CR>")
+  fnutil.nmap(self.list.buf, 'q', "<cmd>lua require'dev2one'.window.delete()<CR>")
   local selection_char = '▶'
   vim.fn.sign_define('dev2one-curline', {text=selection_char})
   vim.schedule(function() self:update(content) end)
@@ -316,6 +317,14 @@ function win:_select(item)
   if item.location then
     vim.lsp.util.jump_to_location(item.location)
   else
+    if item.file then
+      local buf = vim.fn.bufadd(item.file)
+      api.nvim_set_current_buf(buf)
+      api.nvim_buf_set_option(0, 'buflisted', true)
+      vim.schedule(function()
+        vim.api.nvim_win_set_buf(self.opts.main_win, buf)
+      end)
+    end
     local pos = {item.line,0}
     api.nvim_win_set_cursor(self.opts.main_win, pos)
   end

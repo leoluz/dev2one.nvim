@@ -1,7 +1,6 @@
 local window = require('dev2one.win')
 local cmd = require('dev2one.cmd')
 local handlers = require('dev2one.handlers')
---local test = require('dev2one.test')
 local test = require('dev2one.go.test')
 local uv = vim.loop
 local M = {}
