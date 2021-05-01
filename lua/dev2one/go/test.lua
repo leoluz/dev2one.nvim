@@ -29,18 +29,35 @@ local tests_query = [[
   (#eq? @type "*testing.T")) @parent
 ]]
 
-function content.new()
+function content.new(opts)
   local o = {
+    opts = opts,
     items = {}
   }
   setmetatable(o, content)
   return o
 end
 
+local function handle_opts(opts)
+  local options =  {
+    icon_test_fail = '🔴',
+    icon_test_run = '🟡',
+    icon_test_pass = '🟢',
+    icon_test_skip = '🔵'
+  }
+  if opts then
+    for k, v in pairs(opts) do
+      options[k] = v
+    end
+  end
+  return options
+end
+
 function gotest.new(opts)
-  local c = content.new()
+  local options = handle_opts(opts)
+  local c = content.new(options)
   local o = {
-    opts = opts,
+    opts = options,
     content = c,
     results = {}
   }
@@ -48,10 +65,27 @@ function gotest.new(opts)
   return o
 end
 
+function content:status_icon(status)
+  if status then
+    if status == "pause" then return self.opts.icon_test_run
+    elseif status == "cont" then return self.opts.icon_test_run
+    elseif status == "run" then return self.opts.icon_test_run
+    elseif status == "fail" then return self.opts.icon_test_fail
+    elseif status == "pass" then return self.opts.icon_test_pass
+    elseif status == "skip" then return self.opts.icon_test_skip
+    end
+  end
+end
+
 function content:update(results)
+  local keys = vim.tbl_keys(results)
+  table.sort(keys, function(a, b)
+    return a < b
+  end)
   self.items = {}
-  for pkg_name,pkg in pairs(results) do
-    local text = string.format("[%s] %s %s", pkg.status, pkg_name, pkg.elapsed)
+  for _, pkg_name in ipairs(keys) do
+    local pkg = results[pkg_name]
+    local text = string.format("%s %s %s", self:status_icon(pkg.status), pkg_name, pkg.elapsed)
     local entry = {
       text = text,
       pkg = pkg_name,
@@ -175,18 +209,21 @@ function gotest:get_test_case()
   return result
 end
 
-function gotest:get_package_name(pkg)
+function gotest:get_root_dir()
   local id, client = next(vim.lsp.buf_get_clients())
-  local root_dir = ''
-  if id ~= nil and client.config.root_dir then
-    root_dir = client.config.root_dir
+  if id == nil then
+    error({error_msg="lsp client not attached"})
   end
-  if pkg then
-    return root_dir, pkg
+  if not client.config.root_dir then
+    error({error_msg="lsp root_dir not defined"})
   end
+  return client.config.root_dir
+end
+
+function gotest:get_package_name(root_dir)
   local test_dir = vim.fn.expand('#'..vim.api.nvim_get_current_buf()..':p:h')
   local package_name = string.gsub(test_dir, root_dir, '.')
-  return root_dir, package_name
+  return package_name
 end
 
 function gotest:clean_output(out)
@@ -281,6 +318,12 @@ function gotest:on_stdout(data, window)
 end
 
 function gotest:test(pkg_param)
+  local ok, root_dir = pcall(self.get_root_dir, self)
+  if not ok then
+    print("[dev2one]: error getting root dir:", root_dir.error_msg)
+    return
+  end
+
   local winnr = vim.api.nvim_get_current_win()
   local opts = {
     main_win = winnr
@@ -299,13 +342,13 @@ function gotest:test(pkg_param)
     self:on_stdout(data, w)
   end
 
-  local root_dir, package_name = self:get_package_name(pkg_param)
-  local args = {
-    "test",
-    package_name,
-    "-count=1"
-  }
-  if not pkg_param then
+  local args = { "test" }
+
+  if pkg_param then
+    table.insert(args, pkg_param)
+  else
+    local package_name = self:get_package_name(root_dir)
+    table.insert(args, package_name)
     local test_case = self:get_test_case()
     if test_case then
       table.insert(args, "-run")
@@ -315,6 +358,12 @@ function gotest:test(pkg_param)
       self.content.title = "Running Tests for Package: " .. package_name
     end
   end
+  --local args = {
+    --"test",
+    --package_name,
+    --"-count=1"
+  --}
+  table.insert(args, "-count=1")
   table.insert(args, "-json")
   w.open()
   uvutil.process("go", args, root_dir, on_done, on_stdout)
