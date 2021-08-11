@@ -317,6 +317,27 @@ function gotest:on_stdout(data, window)
   end
 end
 
+function gotest:build_args(pkg, root_dir)
+  local args = { "test" }
+  if pkg then
+    table.insert(args, pkg)
+  else
+    local package_name = self:get_package_name(root_dir)
+    table.insert(args, package_name)
+    local test_case = self:get_test_case()
+    if test_case then
+      table.insert(args, "-run")
+      table.insert(args, test_case)
+      self.content.title = "Running Test: " .. test_case
+    else
+      self.content.title = "Running Tests for Package: " .. package_name
+    end
+  end
+  table.insert(args, "-count=1")
+  table.insert(args, "-json")
+  return args
+end
+
 function gotest:test(pkg_param)
   local ok, root_dir = pcall(self.get_root_dir, self)
   if not ok then
@@ -342,29 +363,7 @@ function gotest:test(pkg_param)
     self:on_stdout(data, w)
   end
 
-  local args = { "test" }
-
-  if pkg_param then
-    table.insert(args, pkg_param)
-  else
-    local package_name = self:get_package_name(root_dir)
-    table.insert(args, package_name)
-    local test_case = self:get_test_case()
-    if test_case then
-      table.insert(args, "-run")
-      table.insert(args, test_case)
-      self.content.title = "Running Test: " .. test_case
-    else
-      self.content.title = "Running Tests for Package: " .. package_name
-    end
-  end
-  --local args = {
-    --"test",
-    --package_name,
-    --"-count=1"
-  --}
-  table.insert(args, "-count=1")
-  table.insert(args, "-json")
+  local args = self:build_args(pkg_param, root_dir)
   w.open()
   uvutil.process("go", args, root_dir, on_done, on_stdout)
 end
