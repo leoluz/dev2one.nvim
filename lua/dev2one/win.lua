@@ -65,8 +65,10 @@ function win:_with_list(content, opts)
   fnutil.nmap(self.list.buf, '<CR>', "<cmd>lua require'dev2one'.window.select_line()<CR>")
   fnutil.nmap(self.list.buf, 'q', "<cmd>lua require'dev2one'.window.delete()<CR>")
   local selection_char = '▶'
-  vim.fn.sign_define('dev2one-curline', {text=selection_char})
-  vim.schedule(function() self:update(content) end)
+  vim.fn.sign_define('dev2oneCurline', {text=selection_char})
+  vim.schedule(function() 
+    self:update(content)
+  end)
 end
 
 function win:_with_preview(opts)
@@ -130,7 +132,9 @@ function win:_on_lines(first_line, last_line, prompt_char)
     local line = self.list.content[result[1]]
     table.insert(lines, line)
   end
-  vim.schedule(function() self:update(lines) end)
+  vim.schedule(function()
+    self:update(lines)
+  end)
 end
 
 function win:_with_cleaner()
@@ -193,8 +197,8 @@ function win:previous()
   if pos[1] == 1 then
     return
   end
-  vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
-  vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=pos[1]-1})
+  vim.fn.sign_unplace('*', {buffer=self.list.buf})
+  vim.fn.sign_place(0, '', 'dev2oneCurline', self.list.buf, {lnum=pos[1]-1})
   api.nvim_win_set_cursor(self.list.win, {pos[1]-1,0})
   vim.api.nvim_buf_call(self.list.buf, function() vim.cmd("normal! $") end)
   self:_update_preview()
@@ -206,8 +210,8 @@ function win:next()
   if pos[1] == total_lines then
     return
   end
-  vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
-  vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=pos[1]+1})
+  vim.fn.sign_unplace('*', {buffer=self.list.buf})
+  vim.fn.sign_place(0, '', 'dev2oneCurline', self.list.buf, {lnum=pos[1]+1})
   api.nvim_win_set_cursor(self.list.win, {pos[1]+1,0})
   vim.api.nvim_buf_call(self.list.buf, function() vim.cmd("normal! $") end)
   self:_update_preview()
@@ -252,6 +256,7 @@ function win:prev_scrollleft()
 end
 
 function win:update(lines)
+
   vim.schedule(
     function()
       api.nvim_buf_set_option(self.list.buf, 'modifiable', true)
@@ -260,17 +265,17 @@ function win:update(lines)
             api.nvim_buf_set_lines(self.list.buf, 0, -1, false, {})
       end
       if next(lines) ~= nil then
-          api.nvim_buf_set_lines(self.list.buf, 0, -1, false, lines)
-          self.list.cur_lines = lines
-          api.nvim_win_set_cursor(self.list.win, {1,0})
-          vim.fn.sign_unplace('', {buffer=self.list.buf, id='dev2one-curline'})
-          vim.fn.sign_place(0, '', 'dev2one-curline', self.list.buf, {lnum=1})
-          if self.opts.list_show_eol then
-            vim.api.nvim_buf_call(self.list.buf, function()
-              vim.cmd("normal! $")
-            end)
-          end
-          self:_update_preview()
+        api.nvim_buf_set_lines(self.list.buf, 0, -1, false, lines)
+        self.list.cur_lines = lines
+        api.nvim_win_set_cursor(self.list.win, {1,0})
+        vim.fn.sign_unplace('*', {buffer=self.list.buf})
+        vim.fn.sign_place(0, '', 'dev2oneCurline', self.list.buf, {lnum=1})
+        if self.opts.list_show_eol then
+          vim.api.nvim_buf_call(self.list.buf, function()
+            vim.cmd("normal! $")
+          end)
+        end
+        self:_update_preview()
       end
       api.nvim_buf_set_option(self.list.buf, 'modifiable', false)
     end)
@@ -284,8 +289,8 @@ function win:_update_preview()
   local function update_cursor()
     local line = item.line
     api.nvim_win_set_cursor(self.preview.win, {line,0})
-    vim.fn.sign_unplace('', {buffer=self.preview.buf, id='dev2one-curline'})
-    vim.fn.sign_place(0, '', 'dev2one-curline', self.preview.buf, {lnum=line})
+    vim.fn.sign_unplace('*', {buffer=self.preview.buf})
+    vim.fn.sign_place(0, '', 'dev2oneCurline', self.preview.buf, {lnum=line})
   end
   if self.preview.cur_file ~= item.filepath then
     self.preview.cur_file = item.filepath
